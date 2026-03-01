@@ -32,6 +32,13 @@ npx -y plaud auth status --json
 npx -y skills add danielgwilson/plaud --skill plaud -g -y
 ```
 
+## Publishing (maintainers)
+
+This repo is configured for npm **trusted publishing** from GitHub Actions.
+
+- Workflow: `.github/workflows/publish.yml`
+- npm Trusted Publisher workflow filename: `publish.yml`
+
 ## Install (local)
 
 ```bash
