@@ -34,6 +34,14 @@ Fallbacks:
 - Download one: `plaud recordings download <id> --out ./plaud-download --what transcript,summary,json`
 - Download audio: `plaud recordings download <id> --out ./plaud-download --what audio --audio-format opus`
 - Bulk export: `plaud recordings export --zip`
+- Trash: `plaud recordings trash <id>`
+- Restore: `plaud recordings restore <id>`
+- Tags (list): `plaud recordings tags list --json`
+- Tags (add): `plaud recordings tags add <tagId> <id>`
+- Tags (clear): `plaud recordings tags clear <id>`
+- Speakers (list): `plaud speakers list --json`
+- Speakers (rename): `plaud speakers rename <speakerId> --name "New Name"`
+- Re-run transcript/summary: `plaud recordings rerun <id> --wait`
 
 ## Notes
 

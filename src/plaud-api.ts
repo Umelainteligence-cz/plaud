@@ -184,3 +184,121 @@ export async function getRecordingDetailsBatch({ token, ids }: { token: string; 
   return [];
 }
 
+function assertApiOk(res: any): void {
+  if (!res || typeof res !== "object") throw new Error("API error");
+  if (typeof (res as any).status === "number" && (res as any).status !== 0) {
+    throw new Error((res as any).msg || (res as any).message || "API error");
+  }
+}
+
+export async function trashFiles({ token, ids }: { token: string; ids: string[] }): Promise<any> {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("Missing file id(s)");
+  const res = await plaudRequest({ token, endpoint: "/file/trash/", method: "POST", body: ids });
+  assertApiOk(res);
+  return res;
+}
+
+export async function untrashFiles({ token, ids }: { token: string; ids: string[] }): Promise<any> {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("Missing file id(s)");
+  const res = await plaudRequest({ token, endpoint: "/file/untrash/", method: "POST", body: ids });
+  assertApiOk(res);
+  return res;
+}
+
+export type PlaudTag = { id: string; name: string; icon?: string; color?: string };
+
+function parseTagListResponse(res: any): PlaudTag[] {
+  assertApiOk(res);
+  const list = res?.data_filetag_list;
+  if (Array.isArray(list)) return list as PlaudTag[];
+  const nested = res?.data?.data_filetag_list || res?.data?.list || res?.data?.items;
+  if (Array.isArray(nested)) return nested as PlaudTag[];
+  return [];
+}
+
+export async function listTags({ token }: { token: string }): Promise<PlaudTag[]> {
+  const res = await plaudRequest({ token, endpoint: "/filetag/" });
+  return parseTagListResponse(res);
+}
+
+export async function updateTags({
+  token,
+  fileIds,
+  filetagId,
+}: {
+  token: string;
+  fileIds: string[];
+  filetagId: string;
+}): Promise<any> {
+  if (!Array.isArray(fileIds) || fileIds.length === 0) throw new Error("Missing file id(s)");
+  const res = await plaudRequest({
+    token,
+    endpoint: "/file/update-tags",
+    method: "POST",
+    body: { file_id_list: fileIds, filetag_id: String(filetagId ?? "") },
+  });
+  assertApiOk(res);
+  return res;
+}
+
+export type PlaudSpeaker = {
+  speaker_id: string;
+  speaker_name: string;
+  speaker_type?: number;
+  sample_counts?: Record<string, number>;
+  embeddings?: Record<string, unknown>;
+  created_at?: number;
+  updated_at?: number;
+  need_sync?: boolean;
+};
+
+export async function listSpeakers({ token }: { token: string }): Promise<PlaudSpeaker[]> {
+  const res = await plaudRequest({ token, endpoint: "/speaker/list" });
+  assertApiOk(res);
+  const speakers = res?.data?.speakers;
+  return Array.isArray(speakers) ? (speakers as PlaudSpeaker[]) : [];
+}
+
+export async function syncSpeakers({ token, speakers }: { token: string; speakers: PlaudSpeaker[] }): Promise<any> {
+  if (!Array.isArray(speakers) || speakers.length === 0) throw new Error("Missing speaker(s)");
+  const res = await plaudRequest({ token, endpoint: "/speaker/sync", method: "POST", body: { speakers } });
+  assertApiOk(res);
+  return res;
+}
+
+export async function triggerTransSumm({
+  token,
+  fileId,
+  payload,
+}: {
+  token: string;
+  fileId: string;
+  payload: Record<string, unknown>;
+}): Promise<any> {
+  if (!fileId) throw new Error("Missing file id");
+  const res = await plaudRequest({
+    token,
+    endpoint: `/ai/transsumm/${encodeURIComponent(String(fileId))}`,
+    method: "POST",
+    body: payload,
+  });
+  assertApiOk(res);
+  return res;
+}
+
+export type PlaudRunningTask = {
+  file_id: string;
+  task_id: string;
+  task_status: number;
+  task_type: string;
+  sum_type?: string;
+  sum_type_type?: string;
+  [k: string]: unknown;
+};
+
+export async function listRunningTasks({ token }: { token: string }): Promise<PlaudRunningTask[]> {
+  const res = await plaudRequest({ token, endpoint: "/ai/file-task-status" });
+  assertApiOk(res);
+  const list = res?.data?.file_status_list;
+  return Array.isArray(list) ? (list as PlaudRunningTask[]) : [];
+}

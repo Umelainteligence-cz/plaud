@@ -6,7 +6,15 @@ This document defines **stable**, machine-readable behavior for agents and scrip
 
 - When you pass `--json`, the command prints **exactly one JSON object** to stdout.
 - Progress/status logs go to **stderr**.
-- For `plaud recordings download` and `plaud recordings export`, stdout is always JSON (even without `--json`).
+- For mutation-style commands, stdout is always JSON (even without `--json`):
+  - `plaud recordings download`
+  - `plaud recordings export`
+  - `plaud recordings trash`
+  - `plaud recordings restore`
+  - `plaud recordings tags add`
+  - `plaud recordings tags clear`
+  - `plaud recordings rerun`
+  - `plaud speakers rename`
 
 ## JSON envelope
 
@@ -216,3 +224,65 @@ Success:
 }
 ```
 
+### `plaud recordings trash <id...>`
+
+Success:
+```json
+{ "ok": true, "data": { "ids": ["…"], "action": "trash", "response": { "status": 0 } } }
+```
+
+### `plaud recordings restore <id...>`
+
+Success:
+```json
+{ "ok": true, "data": { "ids": ["…"], "action": "restore", "response": { "status": 0 } } }
+```
+
+### `plaud recordings tags list --json`
+
+Success:
+```json
+{ "ok": true, "data": { "count": 1, "tags": [{ "id": "…", "name": "…" }] } }
+```
+
+### `plaud recordings tags add <tagId> <id...>`
+
+Success:
+```json
+{ "ok": true, "data": { "ids": ["…"], "action": "tags.add", "tagId": "…", "response": { "status": 0 } } }
+```
+
+### `plaud recordings tags clear <id...>`
+
+Success:
+```json
+{ "ok": true, "data": { "ids": ["…"], "action": "tags.clear", "response": { "status": 0 } } }
+```
+
+### `plaud speakers list --json`
+
+Success:
+```json
+{ "ok": true, "data": { "count": 1, "speakers": [{ "speaker_id": "…", "speaker_name": "…" }] } }
+```
+
+### `plaud speakers rename <speakerId> --name "New Name"`
+
+Success:
+```json
+{ "ok": true, "data": { "speakerId": "…", "name": "New Name", "response": [{ "speaker_id": "…", "success": true }] } }
+```
+
+### `plaud recordings rerun <id>`
+
+Success:
+```json
+{ "ok": true, "data": { "id": "…", "action": "rerun", "waited": false, "response": { "status": 0 } } }
+```
+
+### `plaud recordings tasks --json`
+
+Success:
+```json
+{ "ok": true, "data": { "count": 2, "tasks": [{ "file_id": "…", "task_type": "transcript" }] } }
+```

@@ -78,3 +78,28 @@ test("doctor --json returns v1 envelope on missing auth (exit 2)", async () => {
   });
 });
 
+test("recordings trash returns v1 envelope on missing auth (exit 2)", async () => {
+  await withTempDir(async (tmp) => {
+    const r = await runCli(["recordings", "trash", "deadbeefdeadbeefdeadbeefdeadbeef"], {
+      XDG_CONFIG_HOME: tmp,
+      PLAUD_AUTH_TOKEN: "",
+    });
+    assert.equal(r.exitCode, 2);
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.error.code, "AUTH_MISSING");
+  });
+});
+
+test("speakers list --json returns v1 envelope on missing auth (exit 2)", async () => {
+  await withTempDir(async (tmp) => {
+    const r = await runCli(["speakers", "list", "--json"], {
+      XDG_CONFIG_HOME: tmp,
+      PLAUD_AUTH_TOKEN: "",
+    });
+    assert.equal(r.exitCode, 2);
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.error.code, "AUTH_MISSING");
+  });
+});

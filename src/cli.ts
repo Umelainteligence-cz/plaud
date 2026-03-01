@@ -20,6 +20,19 @@ function getCliVersion(): string {
   }
 }
 
+async function requireToken({ json }: { json?: boolean }): Promise<string> {
+  const token = await resolveAuthToken();
+  if (token) return token;
+  const err = makeError(null, { code: "AUTH_MISSING", message: "No auth token. Run `plaud auth login`." });
+  if (json) printJson(fail(err));
+  else {
+    // eslint-disable-next-line no-console
+    console.error("No auth token. Use `plaud auth login`, `plaud auth set --stdin`, or export `PLAUD_AUTH_TOKEN`.");
+  }
+  process.exitCode = 2;
+  return "";
+}
+
 function pickUserLabel(me: any): string {
   if (!me || typeof me !== "object") return "";
   const candidates = [
@@ -392,6 +405,311 @@ recordingsCmd
         return;
       }
       throw err;
+    }
+  });
+
+recordingsCmd
+  .command("trash")
+  .description("Move recording(s) to trash")
+  .argument("<id...>", "Recording id(s)")
+  .action(async (ids: string[]) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { trashFiles } = await import("./plaud-api.js");
+    try {
+      const res = await trashFiles({ token, ids: ids.map(String) });
+      printJson(ok({ ids, action: "trash", response: res }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
+    }
+  });
+
+recordingsCmd
+  .command("restore")
+  .description("Restore recording(s) from trash")
+  .argument("<id...>", "Recording id(s)")
+  .action(async (ids: string[]) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { untrashFiles } = await import("./plaud-api.js");
+    try {
+      const res = await untrashFiles({ token, ids: ids.map(String) });
+      printJson(ok({ ids, action: "restore", response: res }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
+    }
+  });
+
+const recordingTagsCmd = recordingsCmd.command("tags").description("Manage tags on recordings");
+
+recordingTagsCmd
+  .command("list")
+  .description("List available tags")
+  .option("--json", "Print JSON")
+  .action(async (opts: { json?: boolean }) => {
+    const token = await requireToken({ json: !!opts.json });
+    if (!token) return;
+    const { listTags } = await import("./plaud-api.js");
+    try {
+      const tags = await listTags({ token });
+      if (opts.json) {
+        printJson(ok({ count: tags.length, tags }));
+        return;
+      }
+      // eslint-disable-next-line no-console
+      for (const t of tags) console.log(`${t.id}\t${t.name}`);
+    } catch (err: any) {
+      process.exitCode = 1;
+      if (opts.json) printJson(fail(makeError(err)));
+      else throw err;
+    }
+  });
+
+recordingTagsCmd
+  .command("add")
+  .description("Add a tag to one or more recordings")
+  .argument("<tagId>", "Tag id")
+  .argument("<id...>", "Recording id(s)")
+  .action(async (tagId: string, ids: string[]) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { updateTags } = await import("./plaud-api.js");
+    try {
+      const res = await updateTags({ token, fileIds: ids.map(String), filetagId: String(tagId) });
+      printJson(ok({ ids, action: "tags.add", tagId, response: res }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
+    }
+  });
+
+recordingTagsCmd
+  .command("clear")
+  .description("Clear all tags from one or more recordings")
+  .argument("<id...>", "Recording id(s)")
+  .action(async (ids: string[]) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { updateTags } = await import("./plaud-api.js");
+    try {
+      const res = await updateTags({ token, fileIds: ids.map(String), filetagId: "" });
+      printJson(ok({ ids, action: "tags.clear", response: res }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
+    }
+  });
+
+function inferTransSummPayload(details: any, overrides: { summType?: string; summTypeType?: string }): Record<string, unknown> {
+  const tz = typeof details?.timezone === "number" ? details.timezone : 0;
+  const tranConfig = details?.extra_data?.tranConfig || {};
+  const usedTemplate =
+    details?.extra_data?.used_template ||
+    details?.extra_data?.aiContentHeader?.used_template ||
+    details?.extra_data?.aiContentHeader?.usedTemplate ||
+    {};
+
+  const language =
+    tranConfig?.language ||
+    details?.extra_data?.aiContentHeader?.language_code ||
+    details?.extra_data?.aiContentHeader?.languageCode ||
+    "en";
+
+  const diarization = typeof tranConfig?.diarization === "number" ? tranConfig.diarization : 1;
+  const llm = tranConfig?.llm || "";
+  const info: Record<string, unknown> = { language, timezone: tz, diarization };
+  if (llm) info.llm = llm;
+
+  const summType =
+    overrides.summType ||
+    usedTemplate?.template_id ||
+    usedTemplate?.templateId ||
+    tranConfig?.type ||
+    "";
+  const summTypeType =
+    overrides.summTypeType ||
+    usedTemplate?.template_type ||
+    usedTemplate?.templateType ||
+    tranConfig?.type_type ||
+    "custom";
+
+  return {
+    is_reload: 1,
+    summ_type: String(summType),
+    summ_type_type: String(summTypeType),
+    info: JSON.stringify(info),
+    support_mul_summ: true,
+    mark_title: "",
+  };
+}
+
+recordingsCmd
+  .command("rerun")
+  .description("Re-run transcript/summary generation for a recording")
+  .argument("<id>", "Recording id")
+  .option("--summ-type <id>", "Template id (defaults to inferred from file details)")
+  .option("--summ-type-type <type>", "Template type (defaults to inferred)", "custom")
+  .option("--wait", "Poll until Plaud no longer reports running tasks for this file", false)
+  .option("--timeout-ms <n>", "Wait timeout in ms", (v) => Number(v), 300000)
+  .option("--poll-ms <n>", "Poll interval in ms", (v) => Number(v), 2000)
+  .action(async (id: string, opts: any) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { getRecordingDetailsBatch, triggerTransSumm, listRunningTasks } = await import("./plaud-api.js");
+    try {
+      const detailsList = await getRecordingDetailsBatch({ token, ids: [id] });
+      const details = Array.isArray(detailsList) ? detailsList.find((d: any) => String(d?.id || "") === String(id)) : null;
+      if (!details) {
+        process.exitCode = 1;
+        printJson(fail(makeError(null, { code: "NOT_FOUND", message: "Recording not found (or details unavailable)." })));
+        return;
+      }
+
+      const payload = inferTransSummPayload(details, {
+        summType: opts.summType ? String(opts.summType) : undefined,
+        summTypeType: opts.summTypeType ? String(opts.summTypeType) : undefined,
+      });
+
+      if (!payload.summ_type) {
+        process.exitCode = 2;
+        printJson(
+          fail(
+            makeError(null, {
+              code: "VALIDATION",
+              message: "Could not infer template id. Re-run with `--summ-type <id>` (capture another HAR if needed).",
+            }),
+          ),
+        );
+        return;
+      }
+
+      const res = await triggerTransSumm({ token, fileId: id, payload });
+
+      let waited = false;
+      if (opts.wait) {
+        waited = true;
+        const startedAt = Date.now();
+        const timeoutMs = Math.max(10_000, Number(opts.timeoutMs || 300000));
+        const pollMs = Math.max(500, Number(opts.pollMs || 2000));
+        while (Date.now() - startedAt < timeoutMs) {
+          const tasks = await listRunningTasks({ token });
+          const stillRunning = tasks.filter((t: any) => String(t?.file_id || "") === String(id));
+          if (stillRunning.length === 0) break;
+          await new Promise((r) => setTimeout(r, pollMs));
+        }
+      }
+
+      printJson(ok({ id, action: "rerun", waited, payload, response: res }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
+    }
+  });
+
+recordingsCmd
+  .command("tasks")
+  .description("List running transcription/summary tasks")
+  .option("--file-id <id>", "Filter to a specific recording id")
+  .option("--json", "Print JSON")
+  .action(async (opts: { fileId?: string; json?: boolean }) => {
+    const token = await requireToken({ json: !!opts.json });
+    if (!token) return;
+    const { listRunningTasks } = await import("./plaud-api.js");
+    try {
+      const tasks = await listRunningTasks({ token });
+      const filtered = opts.fileId ? tasks.filter((t: any) => String(t?.file_id || "") === String(opts.fileId)) : tasks;
+      if (opts.json) {
+        printJson(ok({ count: filtered.length, tasks: filtered }, { filtered: !!opts.fileId }));
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`${filtered.length} running tasks`);
+    } catch (err: any) {
+      process.exitCode = 1;
+      if (opts.json) printJson(fail(makeError(err)));
+      else throw err;
+    }
+  });
+
+const speakersCmd = program.command("speakers").description("Manage speakers");
+
+speakersCmd
+  .command("list")
+  .description("List speakers")
+  .option("--json", "Print JSON")
+  .action(async (opts: { json?: boolean }) => {
+    const token = await requireToken({ json: !!opts.json });
+    if (!token) return;
+    const { listSpeakers } = await import("./plaud-api.js");
+    try {
+      const speakers = await listSpeakers({ token });
+      const safe = speakers.map((s: any) => ({
+        speaker_id: s.speaker_id,
+        speaker_name: s.speaker_name,
+        speaker_type: s.speaker_type,
+        sample_counts: s.sample_counts,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      }));
+      if (opts.json) {
+        printJson(ok({ count: safe.length, speakers: safe }));
+        return;
+      }
+      // eslint-disable-next-line no-console
+      for (const s of safe) console.log(`${s.speaker_id}\t${s.speaker_name}`);
+    } catch (err: any) {
+      process.exitCode = 1;
+      if (opts.json) printJson(fail(makeError(err)));
+      else throw err;
+    }
+  });
+
+speakersCmd
+  .command("rename")
+  .description("Rename a speaker")
+  .argument("<speakerId>", "Speaker id")
+  .requiredOption("--name <name>", "New speaker name")
+  .action(async (speakerId: string, opts: { name: string }) => {
+    const token = await requireToken({ json: true });
+    if (!token) return;
+    const { listSpeakers, syncSpeakers } = await import("./plaud-api.js");
+    try {
+      const speakers = await listSpeakers({ token });
+      const speaker = speakers.find((s: any) => String(s?.speaker_id || "") === String(speakerId));
+      if (!speaker) {
+        process.exitCode = 1;
+        printJson(fail(makeError(null, { code: "NOT_FOUND", message: "Speaker not found." })));
+        return;
+      }
+
+      const updated = {
+        ...speaker,
+        speaker_name: String(opts.name),
+        need_sync: true,
+        updated_at: typeof speaker.updated_at === "number" ? speaker.updated_at : Date.now(),
+      };
+
+      const res = await syncSpeakers({ token, speakers: [updated] });
+      const results = res?.data?.results;
+      const safeResults = Array.isArray(results)
+        ? results.map((r: any) => ({
+            speaker_id: r.speaker_id,
+            speaker_name: r.speaker_name,
+            speaker_type: r.speaker_type,
+            success: r.success,
+            is_created: r.is_created,
+            is_skipped: r.is_skipped,
+            is_deleted: r.is_deleted,
+            updated_at: r.updated_at,
+          }))
+        : [];
+
+      printJson(ok({ speakerId, name: String(opts.name), response: safeResults }));
+    } catch (err: any) {
+      process.exitCode = 1;
+      printJson(fail(makeError(err)));
     }
   });
 
