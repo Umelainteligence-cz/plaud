@@ -11,6 +11,10 @@ This is an **unofficial** project (not affiliated with Plaud). It uses a capture
 
 Security note: **do not** share tokens or `*.har` files (HARs often contain `Authorization` headers).
 
+## Terminology
+
+Plaud’s web UI uses “Files”. This CLI uses `recordings` (with `files` as an alias): `plaud recordings …` or `plaud files …`.
+
 ## Install (npm)
 
 Global (recommended for frequent use):

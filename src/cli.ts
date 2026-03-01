@@ -345,7 +345,10 @@ program
       }),
   );
 
-const recordingsCmd = program.command("recordings").description("Manage Plaud recordings");
+const recordingsCmd = program
+  .command("recordings")
+  .alias("files")
+  .description("Manage Plaud recordings (files)");
 
 recordingsCmd
   .command("list")
