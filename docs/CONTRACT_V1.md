@@ -15,7 +15,6 @@ This document defines **stable**, machine-readable behavior for agents and scrip
   - `plaud recordings tags clear`
   - `plaud recordings rerun`
   - `plaud recordings speakers rename`
-  - `plaud speakers rename`
 
 ## JSON envelope
 
@@ -258,20 +257,6 @@ Success:
 Success:
 ```json
 { "ok": true, "data": { "ids": ["…"], "action": "tags.clear", "response": { "status": 0 } } }
-```
-
-### `plaud speakers list --json`
-
-Success:
-```json
-{ "ok": true, "data": { "count": 1, "speakers": [{ "speaker_id": "…", "speaker_name": "…" }] } }
-```
-
-### `plaud speakers rename <speakerId> --name "New Name"`
-
-Success:
-```json
-{ "ok": true, "data": { "speakerId": "…", "name": "New Name", "response": [{ "speaker_id": "…", "success": true }] } }
 ```
 
 ### `plaud recordings rerun <id>`

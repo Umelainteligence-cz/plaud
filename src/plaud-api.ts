@@ -241,31 +241,6 @@ export async function updateTags({
   return res;
 }
 
-export type PlaudSpeaker = {
-  speaker_id: string;
-  speaker_name: string;
-  speaker_type?: number;
-  sample_counts?: Record<string, number>;
-  embeddings?: Record<string, unknown>;
-  created_at?: number;
-  updated_at?: number;
-  need_sync?: boolean;
-};
-
-export async function listSpeakers({ token }: { token: string }): Promise<PlaudSpeaker[]> {
-  const res = await plaudRequest({ token, endpoint: "/speaker/list" });
-  assertApiOk(res);
-  const speakers = res?.data?.speakers;
-  return Array.isArray(speakers) ? (speakers as PlaudSpeaker[]) : [];
-}
-
-export async function syncSpeakers({ token, speakers }: { token: string; speakers: PlaudSpeaker[] }): Promise<any> {
-  if (!Array.isArray(speakers) || speakers.length === 0) throw new Error("Missing speaker(s)");
-  const res = await plaudRequest({ token, endpoint: "/speaker/sync", method: "POST", body: { speakers } });
-  assertApiOk(res);
-  return res;
-}
-
 export async function triggerTransSumm({
   token,
   fileId,

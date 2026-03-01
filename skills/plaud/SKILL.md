@@ -39,8 +39,6 @@ Fallbacks:
 - Tags (list): `plaud recordings tags list --json`
 - Tags (add): `plaud recordings tags add <tagId> <id>`
 - Tags (clear): `plaud recordings tags clear <id>`
-- Speakers (list): `plaud speakers list --json`
-- Speakers (rename, global/speaker-cloud): `plaud speakers rename <speakerId> --name "New Name" --force`
 - Re-run transcript/summary: `plaud recordings rerun <id> --wait`
 - Recording speaker labels (list): `plaud recordings speakers list <id> --json`
 - Recording speaker labels (rename): `plaud recordings speakers rename <id> --from "Speaker 2" --to "Person A"`

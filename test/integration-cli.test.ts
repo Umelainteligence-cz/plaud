@@ -91,19 +91,6 @@ test("recordings trash returns v1 envelope on missing auth (exit 2)", async () =
   });
 });
 
-test("speakers list --json returns v1 envelope on missing auth (exit 2)", async () => {
-  await withTempDir(async (tmp) => {
-    const r = await runCli(["speakers", "list", "--json"], {
-      XDG_CONFIG_HOME: tmp,
-      PLAUD_AUTH_TOKEN: "",
-    });
-    assert.equal(r.exitCode, 2);
-    const parsed = JSON.parse(r.stdout);
-    assert.equal(parsed.ok, false);
-    assert.equal(parsed.error.code, "AUTH_MISSING");
-  });
-});
-
 test("recordings speakers list --json returns v1 envelope on missing auth (exit 2)", async () => {
   await withTempDir(async (tmp) => {
     const r = await runCli(["recordings", "speakers", "list", "deadbeefdeadbeefdeadbeefdeadbeef", "--json"], {
@@ -114,18 +101,5 @@ test("recordings speakers list --json returns v1 envelope on missing auth (exit 
     const parsed = JSON.parse(r.stdout);
     assert.equal(parsed.ok, false);
     assert.equal(parsed.error.code, "AUTH_MISSING");
-  });
-});
-
-test("speakers rename requires --force (exit 2)", async () => {
-  await withTempDir(async (tmp) => {
-    const r = await runCli(["speakers", "rename", "deadbeefdeadbeefdeadbeefdeadbeef", "--name", "X"], {
-      XDG_CONFIG_HOME: tmp,
-      PLAUD_AUTH_TOKEN: "eyJ" + "x".repeat(60),
-    });
-    assert.equal(r.exitCode, 2);
-    const parsed = JSON.parse(r.stdout);
-    assert.equal(parsed.ok, false);
-    assert.equal(parsed.error.code, "VALIDATION");
   });
 });
