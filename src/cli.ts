@@ -372,12 +372,35 @@ function normalizeMatchMode(value: unknown): "original" | "speaker" | "both" {
 
 recordingsCmd
   .command("list")
-  .description("List recordings (count-only by default)")
+  .description("List files (most recent first by default)")
   .option("--include-trash", "Include trashed recordings", false)
-  .option("--max <n>", "Max recordings to fetch", (v) => Number(v), 99999)
+  .option("--limit <n>", "Max items to return (default: 25)", (v) => Number(v), 25)
+  .option("--max <n>", "Deprecated alias for --limit", (v) => Number(v))
+  .option("--skip <n>", "Skip N items (API-ordered, not filter-ordered)", (v) => Number(v), 0)
+  .option("--all", "Fetch all items (ignores --limit)", false)
+  .option("--sort <field>", "Sort field: created|modified (default: created)", "created")
+  .option("--order <dir>", "Sort order: desc|asc (default: desc)", "desc")
+  .option("--from <iso>", "Only include files on/after this date (YYYY-MM-DD or ISO-8601)")
+  .option("--to <iso>", "Only include files on/before this date (YYYY-MM-DD or ISO-8601)")
+  .option("--last <duration>", "Shorthand for a recent window like 7d, 30d, 24h (sets --from)")
+  .option("--raw", "Include raw API items in JSON output", false)
   .option("--json", "Print JSON")
-  .action(async (opts: { includeTrash?: boolean; max: number; json?: boolean }) => {
-    const { listRecordings } = await import("./plaud-api.js");
+  .action(
+    async (opts: {
+      includeTrash?: boolean;
+      limit: number;
+      max?: number;
+      skip: number;
+      all?: boolean;
+      sort: string;
+      order: string;
+      from?: string;
+      to?: string;
+      last?: string;
+      raw?: boolean;
+      json?: boolean;
+    }) => {
+    const { listRecordingsPage } = await import("./plaud-api.js");
     const token = await resolveAuthToken();
     if (!token) {
       if (opts.json) {
@@ -391,20 +414,235 @@ recordingsCmd
     }
 
     try {
-      const max = Number.isFinite(opts.max) ? opts.max : 99999;
-      const recordings = await listRecordings({
-        token,
-        includeTrash: !!opts.includeTrash,
-        max,
-      });
+      const sortBy = String(opts.sort || "created").toLowerCase() === "modified" ? "edit_time" : "start_time";
+      const isDesc = String(opts.order || "desc").toLowerCase() !== "asc";
 
-      if (opts.json) {
-        printJson(ok({ count: recordings.length, recordings }, { includeTrash: !!opts.includeTrash, max }));
+      function parseDate(value: string | undefined): Date | null {
+        if (!value) return null;
+        const v = String(value).trim();
+        if (!v) return null;
+        // Allow YYYY-MM-DD as a shorthand.
+        const d = new Date(v.length === 10 ? `${v}T00:00:00` : v);
+        if (Number.isNaN(d.getTime())) return null;
+        return d;
+      }
+
+      function parseDuration(value: string | undefined): number | null {
+        if (!value) return null;
+        const v = String(value).trim().toLowerCase();
+        const m = v.match(/^(\d+)\s*([smhdw])$/);
+        if (!m) return null;
+        const n = Number(m[1]);
+        const unit = m[2];
+        const mult =
+          unit === "s"
+            ? 1000
+            : unit === "m"
+              ? 60_000
+              : unit === "h"
+                ? 3_600_000
+                : unit === "d"
+                  ? 86_400_000
+                  : 7 * 86_400_000;
+        return n * mult;
+      }
+
+      const lastMs = parseDuration(opts.last);
+      const now = Date.now();
+      const fromDate = parseDate(opts.from) || (lastMs ? new Date(now - lastMs) : null);
+      const toDate = parseDate(opts.to);
+      if ((opts.from && !fromDate) || (opts.to && !toDate) || (opts.last && !lastMs)) {
+        process.exitCode = 2;
+        printJson(
+          fail(
+            makeError(null, {
+              code: "VALIDATION",
+              message:
+                "Invalid date/duration. Use YYYY-MM-DD or ISO-8601 for --from/--to, and e.g. 7d/24h for --last.",
+            }),
+          ),
+        );
         return;
       }
 
+      const limit = opts.all ? Infinity : Math.max(0, Number.isFinite(opts.max as any) ? Number(opts.max) : Number(opts.limit));
+      const skip = Math.max(0, Number(opts.skip || 0));
+
+      const pageFetch = Math.max(50, Math.min(200, Number.isFinite(limit) ? Math.max(50, Math.ceil(limit * 3)) : 200));
+
+      const rawItems: any[] = [];
+      const items: Array<{
+        id: string;
+        name: string;
+        durationMs: number | null;
+        createdAtMs: number | null;
+        createdAt: string | null;
+        modifiedAtMs: number | null;
+        modifiedAt: string | null;
+      }> = [];
+
+      function getNum(v: any): number | null {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function getDurationMs(file: any): number | null {
+        return (
+          getNum(file?.duration) ??
+          getNum(file?.duration_ms) ??
+          getNum(file?.audio_duration) ??
+          getNum(file?.audio_duration_ms) ??
+          null
+        );
+      }
+
+      function getCreatedMs(file: any): number | null {
+        return getNum(file?.start_time) ?? null;
+      }
+
+      function getModifiedMs(file: any): number | null {
+        return getNum(file?.edit_time) ?? null;
+      }
+
+      function matchesWindow(file: any): boolean {
+        const createdMs = getCreatedMs(file);
+        const modifiedMs = getModifiedMs(file);
+        const sortMs = sortBy === "edit_time" ? modifiedMs : createdMs;
+        const ms = sortMs ?? createdMs ?? modifiedMs;
+        if (!ms) return true;
+        if (fromDate && ms < fromDate.getTime()) return false;
+        if (toDate && ms > toDate.getTime()) return false;
+        return true;
+      }
+
+      function msToIso(ms: number | null): string | null {
+        if (!ms) return null;
+        const d = new Date(ms);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toISOString();
+      }
+
+      let rawSkip = skip;
+      let scanned = 0;
+      let returned = 0;
+      let hasMore = false;
+
+      // If filters are provided, we may need to scan multiple API pages to fill a single logical page.
+      // Note: pagination is still based on API ordering (skip/limit), and `nextSkip` is safe to use for continuation.
+      while (returned < (Number.isFinite(limit) ? limit + 1 : Infinity)) {
+        const batch = await listRecordingsPage({
+          token,
+          includeTrash: !!opts.includeTrash,
+          sortBy,
+          isDesc,
+          skip: rawSkip,
+          limit: pageFetch,
+        });
+        if (!batch.length) break;
+
+        for (const file of batch) {
+          rawSkip += 1;
+          scanned += 1;
+
+          if (!matchesWindow(file)) continue;
+          if (opts.raw) rawItems.push(file);
+
+          const createdAtMs = getCreatedMs(file);
+          const modifiedAtMs = getModifiedMs(file);
+          const id = String(file?.id || "");
+          const name = String(file?.filename || file?.name || "");
+          if (!id) continue;
+
+          items.push({
+            id,
+            name,
+            durationMs: getDurationMs(file),
+            createdAtMs,
+            createdAt: msToIso(createdAtMs),
+            modifiedAtMs,
+            modifiedAt: msToIso(modifiedAtMs),
+          });
+          returned += 1;
+
+          if (Number.isFinite(limit) && returned >= limit + 1) break;
+        }
+
+        if (Number.isFinite(limit) && returned >= limit + 1) break;
+        if (batch.length < pageFetch) break;
+
+        // Best-effort early-exit: if we're sorted desc by the same field used for the window, and the last item is older than fromDate,
+        // there will be no more matches.
+        if (fromDate && isDesc && batch.length) {
+          const last = batch[batch.length - 1];
+          const lastMs = sortBy === "edit_time" ? getModifiedMs(last) : getCreatedMs(last);
+          if (lastMs && lastMs < fromDate.getTime()) break;
+        }
+      }
+
+      if (Number.isFinite(limit) && items.length > limit) {
+        hasMore = true;
+        items.length = limit;
+      }
+
+      if (opts.json) {
+        const data: any = {
+          count: items.length,
+          items,
+          page: {
+            limit: Number.isFinite(limit) ? limit : null,
+            skip,
+            nextSkip: rawSkip,
+            hasMore,
+            scanned,
+          },
+          sort: { field: sortBy === "edit_time" ? "modified" : "created", order: isDesc ? "desc" : "asc" },
+          filter: { from: fromDate ? fromDate.toISOString() : null, to: toDate ? toDate.toISOString() : null },
+        };
+        if (opts.raw) data.recordings = rawItems;
+        printJson(ok(data, { includeTrash: !!opts.includeTrash }));
+        return;
+      }
+
+      function formatDuration(ms: number | null): string {
+        if (!ms || ms < 0) return "-";
+        const totalSeconds = Math.floor(ms / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        if (minutes > 0) return `${minutes}m ${seconds}s`;
+        return `${seconds}s`;
+      }
+
+      function formatDateTime(ms: number | null): string {
+        if (!ms) return "-";
+        const d = new Date(ms);
+        if (Number.isNaN(d.getTime())) return "-";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const hh = String(d.getHours()).padStart(2, "0");
+        const min = String(d.getMinutes()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+      }
+
+      const createdWidth = 16;
+      const durWidth = 8;
+      const idWidth = 8;
+
       // eslint-disable-next-line no-console
-      console.log(`${recordings.length} recordings`);
+      console.log(`${"Created".padEnd(createdWidth)} ${"Dur".padEnd(durWidth)} ${"ID".padEnd(idWidth)} Name`);
+      // eslint-disable-next-line no-console
+      console.log(`${"-".repeat(createdWidth)} ${"-".repeat(durWidth)} ${"-".repeat(idWidth)} ${"-".repeat(20)}`);
+      for (const it of items) {
+        const idShort = it.id.slice(0, idWidth);
+        // eslint-disable-next-line no-console
+        console.log(`${formatDateTime(it.createdAtMs).padEnd(createdWidth)} ${formatDuration(it.durationMs).padEnd(durWidth)} ${idShort.padEnd(idWidth)} ${it.name}`);
+      }
+      if (hasMore) {
+        // eslint-disable-next-line no-console
+        console.log(`\nMore available. Next page: plaud recordings list --skip ${rawSkip} --limit ${Number.isFinite(limit) ? limit : 25}`);
+      }
     } catch (err: any) {
       process.exitCode = 1;
       if (opts.json) {
@@ -413,7 +651,8 @@ recordingsCmd
       }
       throw err;
     }
-  });
+  },
+  );
 
 const recordingSpeakersCmd = recordingsCmd.command("speakers").description("Manage speakers within a single recording");
 

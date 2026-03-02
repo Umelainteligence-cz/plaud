@@ -29,7 +29,8 @@ Fallbacks:
 
 ## Common workflows
 
-- List: `plaud recordings list --json --max 50`
+- List (recent): `plaud recordings list --json --limit 50`
+- Next page: `plaud recordings list --json --skip 50 --limit 50`
 - Get one: `plaud recordings get <id> --json`
 - Download one: `plaud recordings download <id> --out ./plaud-download --what transcript,summary,json`
 - Download audio: `plaud recordings download <id> --out ./plaud-download --what audio --audio-format opus`

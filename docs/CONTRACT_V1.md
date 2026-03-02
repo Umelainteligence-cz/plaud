@@ -169,8 +169,24 @@ Success:
 ```json
 {
   "ok": true,
-  "data": { "count": 2, "recordings": [{ "id": "…" }, { "id": "…" }] },
-  "meta": { "includeTrash": false, "max": 2 }
+  "data": {
+    "count": 2,
+    "items": [
+      {
+        "id": "…",
+        "name": "…",
+        "durationMs": 1234,
+        "createdAtMs": 1700000000000,
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "modifiedAtMs": 1700000000000,
+        "modifiedAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "page": { "limit": 25, "skip": 0, "nextSkip": 25, "hasMore": true, "scanned": 25 },
+    "sort": { "field": "created", "order": "desc" },
+    "filter": { "from": null, "to": null }
+  },
+  "meta": { "includeTrash": false }
 }
 ```
 

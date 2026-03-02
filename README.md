@@ -105,7 +105,7 @@ plaud recordings export --out ./plaud-transcripts --formats txt,json,md
 ## Download a single recording
 
 ```bash
-plaud recordings list --json --max 10
+plaud recordings list --json --limit 10
 plaud recordings download <id> --out ./plaud-download --what transcript,summary,json
 plaud recordings download <id> --out ./plaud-download --what audio --audio-format opus
 ```

@@ -143,11 +143,15 @@ function parseFileListResponse(listResponse: any): any[] {
 export async function listRecordings({
   token,
   includeTrash = false,
+  sortBy = "start_time",
+  isDesc = true,
   pageSize = 200,
   max = Infinity,
 }: {
   token: string;
   includeTrash?: boolean;
+  sortBy?: string;
+  isDesc?: boolean;
   pageSize?: number;
   max?: number;
 }): Promise<any[]> {
@@ -159,7 +163,9 @@ export async function listRecordings({
     const limit = Math.min(pageSize, max - recordings.length);
     const res = await plaudRequest({
       token,
-      endpoint: `/file/simple/web?skip=${skip}&limit=${limit}&is_trash=${isTrash}&sort_by=start_time&is_desc=true`,
+      endpoint: `/file/simple/web?skip=${skip}&limit=${limit}&is_trash=${isTrash}&sort_by=${encodeURIComponent(
+        String(sortBy || "start_time"),
+      )}&is_desc=${isDesc ? "true" : "false"}`,
     });
     const batch = parseFileListResponse(res);
     if (batch.length === 0) break;
@@ -169,6 +175,31 @@ export async function listRecordings({
   }
 
   return recordings;
+}
+
+export async function listRecordingsPage({
+  token,
+  includeTrash = false,
+  sortBy = "start_time",
+  isDesc = true,
+  skip = 0,
+  limit = 25,
+}: {
+  token: string;
+  includeTrash?: boolean;
+  sortBy?: string;
+  isDesc?: boolean;
+  skip?: number;
+  limit?: number;
+}): Promise<any[]> {
+  const isTrash = includeTrash ? 2 : 0;
+  const res = await plaudRequest({
+    token,
+    endpoint: `/file/simple/web?skip=${Number(skip || 0)}&limit=${Number(limit || 0)}&is_trash=${isTrash}&sort_by=${encodeURIComponent(
+      String(sortBy || "start_time"),
+    )}&is_desc=${isDesc ? "true" : "false"}`,
+  });
+  return parseFileListResponse(res);
 }
 
 export async function getRecordingDetailsBatch({ token, ids }: { token: string; ids: string[] }): Promise<any[]> {
