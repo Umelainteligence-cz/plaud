@@ -84,6 +84,17 @@ export async function plaudRequest({
     "edit-from": "web",
     origin: "https://app.plaud.ai",
     referer: "https://app.plaud.ai/",
+    // Browser-like headers to bypass Cloudflare bot detection (Error 1010,
+    // deployed by Plaud around April 2026). Without these, api-euc1.plaud.ai
+    // returns 403 "browser_signature_banned".
+    "user-agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
   };
 
   for (let attempt = 0; attempt <= retries; attempt++) {
