@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = process.cwd();
 const selfPath = relative(repoRoot, fileURLToPath(import.meta.url)).replace(/\\/g, "/");
+const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const trackedArtifactChecks = [
   { pattern: /(^|\/)\.firecrawl\//, reason: "tracked Firecrawl artifact" },
@@ -155,12 +156,14 @@ function scanPackedFiles() {
 
   try {
     const packJson = execFileSync(
-      "npm",
+      npmBin,
       ["pack", "--json", "--silent", "--pack-destination", tempRoot],
       {
         cwd: repoRoot,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
+        // Node 20+ requires shell on Windows to execute .cmd/.bat
+        shell: process.platform === "win32",
       },
     );
 
@@ -168,7 +171,13 @@ function scanPackedFiles() {
     const packResult = Array.isArray(parsed) ? parsed[0] : parsed;
     const tarballPath = join(tempRoot, packResult.filename);
 
-    execFileSync("tar", ["-xzf", tarballPath, "-C", tempRoot], {
+    // On Windows prefer the System32 BSD tar (handles "C:\" paths natively).
+    // Using PATH-resolved "tar" on Windows may pick up GNU tar from Git Bash,
+    // which treats "C:" as a remote host and fails without --force-local,
+    // while BSD tar rejects that flag outright.
+    const tarBin =
+      process.platform === "win32" ? "C:\\Windows\\System32\\tar.exe" : "tar";
+    execFileSync(tarBin, ["-xzf", tarballPath, "-C", tempRoot], {
       stdio: ["ignore", "ignore", "pipe"],
     });
 
