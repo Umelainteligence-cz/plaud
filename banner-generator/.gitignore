@@ -1,0 +1,21 @@
+# Virtuální prostředí
+.venv/
+venv/
+
+# Vygenerované bannery (necommitujeme)
+outputs/*.jpg
+outputs/*.png
+
+# Vstupy s firemní identitou (přidej si je lokálně dle README)
+inputs/*.jpg
+inputs/*.jpeg
+inputs/*.png
+inputs/*.ttf
+inputs/*.otf
+
+# API klíče
+.env
+
+# Python smetí
+__pycache__/
+*.pyc
