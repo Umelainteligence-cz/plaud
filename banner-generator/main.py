@@ -51,8 +51,9 @@ FONT_PATH = os.path.join(INPUT_DIR, "font.ttf")
 ORANGE = (255, 103, 0)          # #ff6700 – akcentová oranžová
 TEXT_COLOR = (26, 26, 26)       # tmavě šedá pro nadpis (dobrá čitelnost na světlém pozadí)
 
-# Nadpis vykreslený do banneru.
+# Texty vykreslené do banneru (dle návrhu).
 HEADLINE = "AI agenti pro váš e-shop"
+SUBHEADLINE = "Listing, knowledge base, repricing a další."
 
 # Outpainting model (Gemini Developer API, funguje s API klíčem z prostředí).
 IMAGE_MODEL = "gemini-2.5-flash-image"
@@ -258,61 +259,118 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines
 
 
+def _load_font(size: int) -> ImageFont.ImageFont:
+    """Načte font.ttf v dané velikosti; když chybí, vrátí vestavěný font Pillow."""
+    try:
+        return ImageFont.truetype(FONT_PATH, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _line_height(font: ImageFont.ImageFont, spacing: float = 1.18) -> float:
+    """Výška jednoho řádku textu pro daný font (včetně mezery mezi řádky)."""
+    box = font.getbbox("Ag")
+    return (box[3] - box[1]) * spacing
+
+
 def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_width: int, max_height: int,
-              line_spacing: float = 1.15) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+              line_spacing: float = 1.18, max_size: int = 4000) -> tuple[ImageFont.ImageFont, list[str]]:
     """Najde největší velikost fontu, při které se zalomený text vejde do plochy.
 
-    Začíná u velikosti odvozené z výšky banneru a postupně zmenšuje, dokud se
-    všechny řádky nevejdou do max_width × max_height. Vrací font i hotové řádky.
+    Začíná u velikosti odvozené z výšky banneru (shora omezené max_size) a
+    postupně zmenšuje, dokud se všechny řádky nevejdou do max_width × max_height.
+    Vrací font i hotové řádky.
     """
-    # Horní odhad velikosti písma podle dostupné výšky.
-    size = max(10, max_height)
-
+    size = max(10, min(int(max_height), max_size))
     while size >= 8:
-        try:
-            font = ImageFont.truetype(FONT_PATH, size)
-        except OSError:
-            # Font nelze načíst – spadneme na vestavěný (bez škálování).
-            font = ImageFont.load_default()
+        font = _load_font(size)
+        # Vestavěný (nešklálovatelný) font vrátíme rovnou.
+        if not isinstance(font, ImageFont.FreeTypeFont):
             return font, _wrap_text(draw, text, font, max_width)
 
         lines = _wrap_text(draw, text, font, max_width)
-        line_h = (font.getbbox("Ag")[3] - font.getbbox("Ag")[1]) * line_spacing
-        total_h = line_h * len(lines)
+        total_h = _line_height(font, line_spacing) * len(lines)
         widest = max((draw.textlength(ln, font=font) for ln in lines), default=0)
-
         if total_h <= max_height and widest <= max_width:
             return font, lines
         size -= 2
 
     # Pojistka – nejmenší rozumná velikost.
-    font = ImageFont.truetype(FONT_PATH, 8)
+    font = _load_font(8)
     return font, _wrap_text(draw, text, font, max_width)
 
 
-def draw_headline(banner: Banner, text: str) -> None:
-    """Vykreslí nadpis do horní poloviny banneru, vycentrovaný, se zalomením."""
-    max_width = banner.width - 2 * SAFE_MARGIN
-    # Text patří do horní poloviny → výškový rozpočet je cca polovina banneru.
-    max_height = banner.height // 2 - SAFE_MARGIN
-
-    font, lines = _fit_font(banner.draw, text, max_width, max_height)
-
-    # Výška řádku podle aktuálního fontu.
-    ascent_descent = font.getbbox("Ag")
-    line_h = (ascent_descent[3] - ascent_descent[1]) * 1.15
-    block_h = line_h * len(lines)
-
-    # Vertikálně vycentrujeme blok v horní polovině banneru.
-    y = max(SAFE_MARGIN, (banner.height // 2 - block_h) // 2)
-
+def _draw_centered_lines(banner: Banner, lines: list[str], font: ImageFont.ImageFont,
+                         y: float, line_h: float, color: tuple[int, int, int]) -> float:
+    """Vykreslí řádky vodorovně vycentrované, shora od pozice y. Vrátí novou y."""
     for line in lines:
         line_w = banner.draw.textlength(line, font=font)
-        x = (banner.width - line_w) // 2  # horizontální vycentrování
-        # Lehký světlý "stín" pro čitelnost přes různá pozadí.
-        banner.draw.text((x + 1, y + 1), line, font=font, fill=(255, 255, 255))
-        banner.draw.text((x, y), line, font=font, fill=TEXT_COLOR)
+        x = (banner.width - line_w) // 2
+        banner.draw.text((x, y), line, font=font, fill=color)
         y += line_h
+    return y
+
+
+def _border_width(banner: Banner) -> int:
+    """Tloušťka firemního oranžového rámečku podle velikosti banneru."""
+    return max(3, round(min(banner.width, banner.height) * 0.025))
+
+
+def draw_text_block(banner: Banner, headline: str, subheadline: str = "") -> None:
+    """Vykreslí nadpis (a pod něj podnadpis, pokud se vejde) do horní poloviny.
+
+    Dle návrhu v příloze: tmavý text na světlém podkladu, bez stínu,
+    vycentrovaný. Podnadpis se přidá jen tehdy, když na něj v horní polovině
+    zbývá místo a jeho písmo neklesne pod hranici čitelnosti (11 px).
+    """
+    margin = SAFE_MARGIN + _border_width(banner)
+    max_width = banner.width - 2 * margin
+    region_top = margin
+    region_h = banner.height // 2 - margin  # textový blok žije v horní polovině
+
+    # Když chceme i podnadpis, předem mu rezervujeme místo – jinak by nadpis
+    # spotřeboval celou horní polovinu a podnadpis by se nikdy nevešel.
+    want_sub = bool(subheadline)
+    head_budget = int(region_h * (0.60 if want_sub else 0.95))
+
+    hfont, hlines = _fit_font(banner.draw, headline, max_width, head_budget)
+    h_lh = _line_height(hfont)
+    h_block = h_lh * len(hlines)
+
+    # Podnadpis – menší a vždy podřízený nadpisu (max ~55 % jeho velikosti).
+    sub_lines: list[str] = []
+    sfont = None
+    s_lh = 0.0
+    gap = 0.0
+    if want_sub:
+        gap = h_lh * 0.4
+        sub_budget = region_h - h_block - gap
+        sub_cap = max(8, int(getattr(hfont, "size", 16) * 0.55))
+        if sub_budget >= 14:
+            sfont, sub_lines = _fit_font(
+                banner.draw, subheadline, max_width, int(sub_budget), max_size=sub_cap
+            )
+            s_lh = _line_height(sfont)
+            # Když ani po zmenšení nezbylo místo, podnadpis raději vynecháme.
+            if s_lh * len(sub_lines) > sub_budget:
+                sub_lines, gap = [], 0.0
+
+    total = h_block + (gap + s_lh * len(sub_lines) if sub_lines else 0)
+    y = region_top + max(0, (region_h - total) // 2)
+
+    y = _draw_centered_lines(banner, hlines, hfont, y, h_lh, TEXT_COLOR)
+    if sub_lines:
+        _draw_centered_lines(banner, sub_lines, sfont, y + gap, s_lh, TEXT_COLOR)
+
+
+def draw_frame(banner: Banner) -> None:
+    """Vykreslí firemní oranžový rámeček (#ff6700) po obvodu banneru."""
+    bw = _border_width(banner)
+    for i in range(bw):
+        banner.draw.rectangle(
+            [i, i, banner.width - 1 - i, banner.height - 1 - i],
+            outline=ORANGE,
+        )
 
 
 def paste_logo(banner: Banner, logo: Image.Image) -> None:
@@ -335,14 +393,16 @@ def paste_logo(banner: Banner, logo: Image.Image) -> None:
     banner.image.paste(logo, (x, y), mask)
 
 
-def compose_banner(base: Image.Image, headline: str, logo: Image.Image | None) -> Image.Image:
-    """ČÁST B: do AI-rozšířeného pozadí složí nadpis a logo."""
+def compose_banner(base: Image.Image, headline: str, logo: Image.Image | None,
+                   subheadline: str = "") -> Image.Image:
+    """ČÁST B: do AI-rozšířeného pozadí složí nadpis, podnadpis, logo a rámeček."""
     image = base.convert("RGB")
     banner = Banner(image=image, draw=ImageDraw.Draw(image))
 
-    draw_headline(banner, headline)
+    draw_text_block(banner, headline, subheadline)
     if logo is not None:
         paste_logo(banner, logo)
+    draw_frame(banner)  # rámeček kreslíme navrch, ať má čisté hrany
     return banner.image
 
 
@@ -390,7 +450,7 @@ def main() -> None:
 
         # ČÁST B – kompozice loga a textu.
         print("   ČÁST B: skládání loga a textu...")
-        final = compose_banner(expanded, HEADLINE, logo)
+        final = compose_banner(expanded, HEADLINE, logo, SUBHEADLINE)
 
         out_path = os.path.join(OUTPUT_DIR, f"banner_{w}x{h}.jpg")
         final.save(out_path, "JPEG", quality=90)
